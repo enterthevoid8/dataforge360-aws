@@ -1,0 +1,537 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: DataForge360 - ECS Fargate Backend API with ALB
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: DataForge360
+
+  Environment:
+    Type: String
+    Default: Dev
+
+  ResourcePrefix:
+    Type: String
+    Default: dataforge360-dev
+
+  Owner:
+    Type: String
+    Default: Lalit
+
+  CostCenter:
+    Type: String
+    Default: Learning
+
+  ContainerPort:
+    Type: Number
+    Default: 3000
+
+  DesiredCount:
+    Type: Number
+    Default: 1
+
+  TaskCpu:
+    Type: String
+    Default: "512"
+
+  TaskMemory:
+    Type: String
+    Default: "1024"
+
+Resources:
+  BackendLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/ecs/${ResourcePrefix}/backend-api"
+      RetentionInDays: 14
+      KmsKeyId:
+        Fn::ImportValue:
+          Fn::Sub: "${ResourcePrefix}-kms-key-arn"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-backend-log-group"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${ResourcePrefix}-ecs-cluster"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-ecs-cluster"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public ALB security group for backend API
+      VpcId:
+        Fn::ImportValue:
+          Fn::Sub: "${ResourcePrefix}-vpc-id"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Allow public HTTP access
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow outbound
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-alb-sg"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BackendTaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ECS backend task security group
+      VpcId:
+        Fn::ImportValue:
+          Fn::Sub: "${ResourcePrefix}-vpc-id"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref ContainerPort
+          ToPort: !Ref ContainerPort
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          Description: Allow traffic from ALB to backend container
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-backend-task-sg"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  AllowEcsToRdsIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId:
+        Fn::ImportValue:
+          Fn::Sub: "${ResourcePrefix}-rds-sg"
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref BackendTaskSecurityGroup
+      Description: Allow PostgreSQL access from ECS backend tasks
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${ResourcePrefix}-backend-alb"
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets:
+        - Fn::ImportValue:
+            Fn::Sub: "${ResourcePrefix}-public-subnet-a"
+        - Fn::ImportValue:
+            Fn::Sub: "${ResourcePrefix}-public-subnet-b"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-backend-alb"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BackendTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${ResourcePrefix}-backend-tg"
+      TargetType: ip
+      Protocol: HTTP
+      Port: !Ref ContainerPort
+      VpcId:
+        Fn::ImportValue:
+          Fn::Sub: "${ResourcePrefix}-vpc-id"
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /health
+      HealthCheckPort: traffic-port
+      Matcher:
+        HttpCode: "200"
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "30"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-backend-tg"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BackendHttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref BackendTargetGroup
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ResourcePrefix}-ecs-task-execution-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: !Sub "${ResourcePrefix}-ecs-execution-extra-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadRdsSecret
+                Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  Fn::ImportValue:
+                    Fn::Sub: "${ResourcePrefix}-postgres-secret-arn"
+
+              - Sid: DecryptKmsForSecretsAndLogs
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                Resource:
+                  Fn::ImportValue:
+                    Fn::Sub: "${ResourcePrefix}-kms-key-arn"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-ecs-task-execution-role"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ResourcePrefix}-ecs-task-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${ResourcePrefix}-ecs-app-runtime-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AllowReadWriteRawBucketForFutureEvents
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource:
+                  - Fn::Sub:
+                      - "arn:aws:s3:::${BucketName}/*"
+                      - BucketName:
+                          Fn::ImportValue:
+                            Fn::Sub: "${ResourcePrefix}-raw-bucket"
+
+              - Sid: AllowKmsForS3FutureUsage
+                Effect: Allow
+                Action:
+                  - kms:Encrypt
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                  - kms:DescribeKey
+                Resource:
+                  Fn::ImportValue:
+                    Fn::Sub: "${ResourcePrefix}-kms-key-arn"
+
+              - Sid: AllowPutEventsToKinesis
+                Effect: Allow
+                Action:
+                  - kinesis:PutRecord
+                  - kinesis:PutRecords
+                Resource:
+                  Fn::ImportValue:
+                    Fn::Sub: "${ResourcePrefix}-events-stream-arn"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-ecs-task-role"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BackendTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${ResourcePrefix}-backend-api"
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: backend-api
+          Image:
+            Fn::Sub:
+              - "${RepositoryUri}:latest"
+              - RepositoryUri:
+                  Fn::ImportValue:
+                    Fn::Sub: "${ResourcePrefix}-backend-ecr-uri"
+          Essential: true
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+              Protocol: tcp
+          Environment:
+            - Name: NODE_ENV
+              Value: production
+            - Name: PORT
+              Value: !Sub "${ContainerPort}"
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: ADMIN_TOKEN
+              Value: dataforge360-dev-admin-token
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: KINESIS_STREAM_NAME
+              Value:
+                Fn::ImportValue:
+                  Fn::Sub: "${ResourcePrefix}-events-stream-name"
+            - Name: DB_HOST
+              Value:
+                Fn::ImportValue:
+                  Fn::Sub: "${ResourcePrefix}-postgres-endpoint"
+            - Name: DB_PORT
+              Value:
+                Fn::ImportValue:
+                  Fn::Sub: "${ResourcePrefix}-postgres-port"
+            - Name: DB_NAME
+              Value: dataforge360db
+            - Name: DB_SSL
+              Value: "true"
+            - Name: DB_POOL_MAX
+              Value: "10"
+          Secrets:
+            - Name: DB_USER
+              ValueFrom:
+                Fn::Join:
+                  - ""
+                  - - Fn::ImportValue:
+                        Fn::Sub: "${ResourcePrefix}-postgres-secret-arn"
+                    - ":username::"
+            - Name: DB_PASSWORD
+              ValueFrom:
+                Fn::Join:
+                  - ""
+                  - - Fn::ImportValue:
+                        Fn::Sub: "${ResourcePrefix}-postgres-secret-arn"
+                    - ":password::"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "node -e \"fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref BackendLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: backend-api
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-backend-task-definition"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BackendEcsService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - BackendHttpListener
+      - AllowEcsToRdsIngress
+    Properties:
+      ServiceName: !Sub "${ResourcePrefix}-backend-service"
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref BackendTaskDefinition
+      LaunchType: FARGATE
+      PlatformVersion: LATEST
+      DesiredCount: !Ref DesiredCount
+      EnableECSManagedTags: true
+      PropagateTags: SERVICE
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref BackendTaskSecurityGroup
+          Subnets:
+            - Fn::ImportValue:
+                Fn::Sub: "${ResourcePrefix}-private-app-subnet-a"
+            - Fn::ImportValue:
+                Fn::Sub: "${ResourcePrefix}-private-app-subnet-b"
+      LoadBalancers:
+        - ContainerName: backend-api
+          ContainerPort: !Ref ContainerPort
+          TargetGroupArn: !Ref BackendTargetGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-backend-service"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  ECSClusterName:
+    Description: ECS cluster name
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub "${ResourcePrefix}-ecs-cluster-name"
+
+  BackendServiceName:
+    Description: ECS backend service name
+    Value: !Ref BackendEcsService
+    Export:
+      Name: !Sub "${ResourcePrefix}-backend-service-name"
+
+  BackendTaskSecurityGroupId:
+    Description: ECS backend task security group
+    Value: !Ref BackendTaskSecurityGroup
+    Export:
+      Name: !Sub "${ResourcePrefix}-backend-task-sg"
+
+  LoadBalancerDNSName:
+    Description: Public ALB DNS name
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub "${ResourcePrefix}-backend-alb-dns"
+
+  BackendApiUrl:
+    Description: Backend API base URL
+    Value: !Sub "http://${ApplicationLoadBalancer.DNSName}"

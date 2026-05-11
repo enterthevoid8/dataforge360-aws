@@ -1,0 +1,236 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: DataForge360 - RDS PostgreSQL Stack
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: DataForge360
+
+  Environment:
+    Type: String
+    Default: Dev
+
+  ResourcePrefix:
+    Type: String
+    Default: dataforge360-dev
+
+  Owner:
+    Type: String
+    Default: Lalit
+
+  CostCenter:
+    Type: String
+    Default: Learning
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+      - db.t4g.micro
+      - db.t4g.small
+      - db.t4g.medium
+
+  DBAllocatedStorage:
+    Type: Number
+    Default: 30
+
+  DBName:
+    Type: String
+    Default: dataforge360db
+
+  DBUsername:
+    Type: String
+    Default: dataforgeadmin
+
+Resources:
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${ResourcePrefix}/rds/postgres/credentials"
+      Description: !Sub "${ProjectName} ${Environment} RDS PostgreSQL credentials"
+      KmsKeyId:
+        Fn::ImportValue: !Sub "${ResourcePrefix}-kms-key-arn"
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username":"${DBUsername}"}'
+        GenerateStringKey: password
+        PasswordLength: 24
+        ExcludeCharacters: '"@/\'
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-rds-secret"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow PostgreSQL access from private app/EC2 resources
+      VpcId:
+        Fn::ImportValue: !Sub "${ResourcePrefix}-vpc-id"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId:
+            Fn::ImportValue: !Sub "${ResourcePrefix}-private-ec2-sg"
+          Description: PostgreSQL access from private admin EC2
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow outbound
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-rds-postgres-sg"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub "${ProjectName} ${Environment} private data subnet group"
+      SubnetIds:
+        - Fn::ImportValue: !Sub "${ResourcePrefix}-private-data-subnet-a"
+        - Fn::ImportValue: !Sub "${ResourcePrefix}-private-data-subnet-b"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-rds-subnet-group"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  DBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: !Sub "${ProjectName} ${Environment} PostgreSQL parameter group"
+      Family: postgres16
+      Parameters:
+        log_statement: ddl
+        log_min_duration_statement: "1000"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-postgres-parameter-group"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  PostgreSQLDatabase:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub "${ResourcePrefix}-postgres"
+      Engine: postgres
+      EngineVersion: "16.13"
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      StorageType: gp3
+      StorageEncrypted: true
+      KmsKeyId:
+        Fn::ImportValue: !Sub "${ResourcePrefix}-kms-key-arn"
+      DBName: !Ref DBName
+      MasterUsername: !Sub "{{resolve:secretsmanager:${DBSecret}:SecretString:username}}"
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${DBSecret}:SecretString:password}}"
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 0
+      # PreferredBackupWindow: 18:00-19:00
+      # PreferredMaintenanceWindow: sun:19:30-sun:20:30
+      AutoMinorVersionUpgrade: true
+      DeletionProtection: false
+      EnablePerformanceInsights: true
+      PerformanceInsightsKMSKeyId:
+        Fn::ImportValue: !Sub "${ResourcePrefix}-kms-key-arn"
+      PerformanceInsightsRetentionPeriod: 7
+      MonitoringInterval: 0
+      CopyTagsToSnapshot: true
+      DBParameterGroupName: !Ref DBParameterGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-postgres"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  DBInstanceIdentifier:
+    Description: RDS PostgreSQL instance identifier
+    Value: !Ref PostgreSQLDatabase
+    Export:
+      Name: !Sub "${ResourcePrefix}-postgres-id"
+
+  DBEndpointAddress:
+    Description: RDS PostgreSQL endpoint address
+    Value: !GetAtt PostgreSQLDatabase.Endpoint.Address
+    Export:
+      Name: !Sub "${ResourcePrefix}-postgres-endpoint"
+
+  DBEndpointPort:
+    Description: RDS PostgreSQL endpoint port
+    Value: !GetAtt PostgreSQLDatabase.Endpoint.Port
+    Export:
+      Name: !Sub "${ResourcePrefix}-postgres-port"
+
+  DBSecretArn:
+    Description: Secret ARN containing RDS credentials
+    Value: !Ref DBSecret
+    Export:
+      Name: !Sub "${ResourcePrefix}-postgres-secret-arn"
+
+  RDSSecurityGroupId:
+    Description: RDS security group ID
+    Value: !Ref RDSSecurityGroup
+    Export:
+      Name: !Sub "${ResourcePrefix}-rds-sg"

@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: DataForge360 - ECR Repository Stack
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: DataForge360
+
+  Environment:
+    Type: String
+    Default: Dev
+
+  ResourcePrefix:
+    Type: String
+    Default: dataforge360-dev
+
+  Owner:
+    Type: String
+    Default: Lalit
+
+  CostCenter:
+    Type: String
+    Default: Learning
+
+Resources:
+  BackendEcrRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${ResourcePrefix}-backend-api"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: MUTABLE
+      EncryptionConfiguration:
+        EncryptionType: KMS
+        KmsKey:
+          Fn::ImportValue: !Sub "${ResourcePrefix}-kms-key-arn"
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep only last 10 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-backend-api-ecr"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  BackendEcrRepositoryName:
+    Description: Backend ECR repository name
+    Value: !Ref BackendEcrRepository
+    Export:
+      Name: !Sub "${ResourcePrefix}-backend-ecr-name"
+
+  BackendEcrRepositoryUri:
+    Description: Backend ECR repository URI
+    Value: !GetAtt BackendEcrRepository.RepositoryUri
+    Export:
+      Name: !Sub "${ResourcePrefix}-backend-ecr-uri"

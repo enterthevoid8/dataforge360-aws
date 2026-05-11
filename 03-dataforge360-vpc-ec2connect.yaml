@@ -1,0 +1,668 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: DataForge360 - VPC, Private EC2 and EC2 Instance Connect Endpoint
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: DataForge360
+
+  Environment:
+    Type: String
+    Default: Dev
+
+  ResourcePrefix:
+    Type: String
+    Default: dataforge360-dev
+
+  Owner:
+    Type: String
+    Default: Lalit
+
+  CostCenter:
+    Type: String
+    Default: Learning
+
+  VpcCidr:
+    Type: String
+    Default: 10.60.0.0/16
+
+  PublicSubnetACidr:
+    Type: String
+    Default: 10.60.1.0/24
+
+  PublicSubnetBCidr:
+    Type: String
+    Default: 10.60.2.0/24
+
+  PrivateAppSubnetACidr:
+    Type: String
+    Default: 10.60.11.0/24
+
+  PrivateAppSubnetBCidr:
+    Type: String
+    Default: 10.60.12.0/24
+
+  PrivateDataSubnetACidr:
+    Type: String
+    Default: 10.60.21.0/24
+
+  PrivateDataSubnetBCidr:
+    Type: String
+    Default: 10.60.22.0/24
+
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+
+  LatestAmazonLinux2023Ami:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+  DataForgeVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-vpc"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  DataForgeInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-igw"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  DataForgeVpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref DataForgeVpc
+      InternetGatewayId: !Ref DataForgeInternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DataForgeVpc
+      CidrBlock: !Ref PublicSubnetACidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-public-subnet-a"
+        - Key: Tier
+          Value: Public
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DataForgeVpc
+      CidrBlock: !Ref PublicSubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-public-subnet-b"
+        - Key: Tier
+          Value: Public
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  PrivateAppSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DataForgeVpc
+      CidrBlock: !Ref PrivateAppSubnetACidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-private-app-subnet-a"
+        - Key: Tier
+          Value: PrivateApp
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  PrivateAppSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DataForgeVpc
+      CidrBlock: !Ref PrivateAppSubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-private-app-subnet-b"
+        - Key: Tier
+          Value: PrivateApp
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  PrivateDataSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DataForgeVpc
+      CidrBlock: !Ref PrivateDataSubnetACidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-private-data-subnet-a"
+        - Key: Tier
+          Value: PrivateData
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  PrivateDataSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DataForgeVpc
+      CidrBlock: !Ref PrivateDataSubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-private-data-subnet-b"
+        - Key: Tier
+          Value: PrivateData
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref DataForgeVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-public-rt"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: DataForgeVpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref DataForgeInternetGateway
+
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  NatElasticIp:
+    Type: AWS::EC2::EIP
+    DependsOn: DataForgeVpcGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-nat-eip"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatElasticIp.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-nat-gateway"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  PrivateAppRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref DataForgeVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-private-app-rt"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  PrivateAppDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateAppRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateAppSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateAppSubnetA
+      RouteTableId: !Ref PrivateAppRouteTable
+
+  PrivateAppSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateAppSubnetB
+      RouteTableId: !Ref PrivateAppRouteTable
+
+  PrivateDataRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref DataForgeVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-private-data-rt"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  PrivateDataSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateDataSubnetA
+      RouteTableId: !Ref PrivateDataRouteTable
+
+  PrivateDataSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateDataSubnetB
+      RouteTableId: !Ref PrivateDataRouteTable
+
+  Ec2InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for private admin EC2
+      VpcId: !Ref DataForgeVpc
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow outbound traffic through NAT
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-private-ec2-sg"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  Ec2ConnectEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for EC2 Instance Connect Endpoint
+      VpcId: !Ref DataForgeVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-eice-sg"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  Ec2IngressFromEice:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref Ec2InstanceSecurityGroup
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      SourceSecurityGroupId: !Ref Ec2ConnectEndpointSecurityGroup
+      Description: Allow SSH from EC2 Instance Connect Endpoint
+
+  EiceEgressToEc2:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref Ec2ConnectEndpointSecurityGroup
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      DestinationSecurityGroupId: !Ref Ec2InstanceSecurityGroup
+      Description: Allow SSH to private EC2
+
+  Ec2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ResourcePrefix}-private-ec2-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-private-ec2-role"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  Ec2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "${ResourcePrefix}-private-ec2-profile"
+      Roles:
+        - !Ref Ec2InstanceRole
+
+  PrivateAdminEc2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmazonLinux2023Ami
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      SubnetId: !Ref PrivateAppSubnetA
+      SecurityGroupIds:
+        - !Ref Ec2InstanceSecurityGroup
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            Encrypted: true
+            KmsKeyId:
+              Fn::ImportValue: !Sub "${ResourcePrefix}-kms-key-arn"
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          mkdir -p /opt/dataforge360
+          cat <<'EOF' > /etc/motd
+
+          =====================================================
+          DataForge360 Private Admin EC2
+          Environment: ${Environment}
+          Access: EC2 Instance Connect Endpoint
+          Public IP: Disabled
+          =====================================================
+
+          EOF
+
+          cat <<'EOF' > /opt/dataforge360/README.txt
+          DataForge360 private admin/debug EC2.
+          Future usage:
+          - AWS CLI testing
+          - PostgreSQL client testing
+          - Redshift client testing
+          - ECS/RDS network debugging
+          - ETL pipeline checks
+          EOF
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-private-admin-ec2"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  Ec2InstanceConnectEndpoint:
+    Type: AWS::EC2::InstanceConnectEndpoint
+    Properties:
+      SubnetId: !Ref PrivateAppSubnetA
+      SecurityGroupIds:
+        - !Ref Ec2ConnectEndpointSecurityGroup
+      PreserveClientIp: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-eice-endpoint"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref DataForgeVpc
+    Export:
+      Name: !Sub "${ResourcePrefix}-vpc-id"
+
+  PublicSubnetAId:
+    Description: Public subnet A
+    Value: !Ref PublicSubnetA
+    Export:
+      Name: !Sub "${ResourcePrefix}-public-subnet-a"
+
+  PublicSubnetBId:
+    Description: Public subnet B
+    Value: !Ref PublicSubnetB
+    Export:
+      Name: !Sub "${ResourcePrefix}-public-subnet-b"
+
+  PrivateAppSubnetAId:
+    Description: Private app subnet A
+    Value: !Ref PrivateAppSubnetA
+    Export:
+      Name: !Sub "${ResourcePrefix}-private-app-subnet-a"
+
+  PrivateAppSubnetBId:
+    Description: Private app subnet B
+    Value: !Ref PrivateAppSubnetB
+    Export:
+      Name: !Sub "${ResourcePrefix}-private-app-subnet-b"
+
+  PrivateDataSubnetAId:
+    Description: Private data subnet A
+    Value: !Ref PrivateDataSubnetA
+    Export:
+      Name: !Sub "${ResourcePrefix}-private-data-subnet-a"
+
+  PrivateDataSubnetBId:
+    Description: Private data subnet B
+    Value: !Ref PrivateDataSubnetB
+    Export:
+      Name: !Sub "${ResourcePrefix}-private-data-subnet-b"
+
+  Ec2InstanceSecurityGroupId:
+    Description: Private EC2 security group
+    Value: !Ref Ec2InstanceSecurityGroup
+    Export:
+      Name: !Sub "${ResourcePrefix}-private-ec2-sg"
+
+  PrivateAdminEc2InstanceId:
+    Description: Private admin EC2 instance ID
+    Value: !Ref PrivateAdminEc2
+    Export:
+      Name: !Sub "${ResourcePrefix}-private-admin-ec2-id"
+
+  PrivateAdminEc2PrivateIp:
+    Description: Private admin EC2 private IP
+    Value: !GetAtt PrivateAdminEc2.PrivateIp
+
+  Ec2InstanceConnectEndpointId:
+    Description: EC2 Instance Connect Endpoint ID
+    Value: !Ref Ec2InstanceConnectEndpoint
+    Export:
+      Name: !Sub "${ResourcePrefix}-eice-endpoint-id"

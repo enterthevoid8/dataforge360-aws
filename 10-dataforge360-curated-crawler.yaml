@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: DataForge360 - Glue Curated Parquet Crawler
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: DataForge360
+
+  Environment:
+    Type: String
+    Default: Dev
+
+  ResourcePrefix:
+    Type: String
+    Default: dataforge360-dev
+
+  Owner:
+    Type: String
+    Default: Lalit
+
+  CostCenter:
+    Type: String
+    Default: Learning
+
+Resources:
+  DataForgeCuratedGlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Sub "${ResourcePrefix}_curated_db"
+        Description: !Sub "${ProjectName} ${Environment} curated parquet data catalog database"
+
+  CuratedCrawlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ResourcePrefix}-curated-crawler-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - glue.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: !Sub "${ResourcePrefix}-curated-crawler-s3-kms-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadCuratedBucket
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - Fn::Sub:
+                      - "arn:aws:s3:::${CuratedBucketName}"
+                      - CuratedBucketName:
+                          Fn::ImportValue:
+                            Fn::Sub: "${ResourcePrefix}-curated-bucket"
+                  - Fn::Sub:
+                      - "arn:aws:s3:::${CuratedBucketName}/*"
+                      - CuratedBucketName:
+                          Fn::ImportValue:
+                            Fn::Sub: "${ResourcePrefix}-curated-bucket"
+
+              - Sid: UseKmsForCuratedBucket
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                Resource:
+                  Fn::ImportValue:
+                    Fn::Sub: "${ResourcePrefix}-kms-key-arn"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-curated-crawler-role"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  CuratedEventsCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Sub "${ResourcePrefix}-curated-events-crawler"
+      Role: !GetAtt CuratedCrawlerRole.Arn
+      DatabaseName: !Ref DataForgeCuratedGlueDatabase
+      Description: Crawler for curated Parquet event files in S3
+      Targets:
+        S3Targets:
+          - Path:
+              Fn::Sub:
+                - "s3://${CuratedBucketName}/events_parquet/"
+                - CuratedBucketName:
+                    Fn::ImportValue:
+                      Fn::Sub: "${ResourcePrefix}-curated-bucket"
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+      RecrawlPolicy:
+        RecrawlBehavior: CRAWL_EVERYTHING
+      Configuration: |
+        {
+          "Version": 1.0,
+          "CrawlerOutput": {
+            "Partitions": {
+              "AddOrUpdateBehavior": "InheritFromTable"
+            }
+          }
+        }
+      Tags:
+        Name: !Sub "${ResourcePrefix}-curated-events-crawler"
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        Owner: !Ref Owner
+        CostCenter: !Ref CostCenter
+        AutoDelete: "True"
+        ManagedBy: CloudFormation
+
+Outputs:
+  CuratedGlueDatabaseName:
+    Description: Glue curated database name
+    Value: !Ref DataForgeCuratedGlueDatabase
+    Export:
+      Name: !Sub "${ResourcePrefix}-curated-glue-database"
+
+  CuratedEventsCrawlerName:
+    Description: Glue crawler name for curated events
+    Value: !Ref CuratedEventsCrawler
+    Export:
+      Name: !Sub "${ResourcePrefix}-curated-events-crawler"

@@ -1,0 +1,233 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: DataForge360 - Kinesis Data Stream and Firehose to S3
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: DataForge360
+
+  Environment:
+    Type: String
+    Default: Dev
+
+  ResourcePrefix:
+    Type: String
+    Default: dataforge360-dev
+
+  Owner:
+    Type: String
+    Default: Lalit
+
+  CostCenter:
+    Type: String
+    Default: Learning
+
+Resources:
+  EventDataStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: !Sub "${ResourcePrefix}-events-stream"
+
+      # =====================================================
+      # OPTION A: PROVISIONED MODE - ACTIVE
+      # Recommended for controlled learning/testing.
+      # Fixed 1 shard gives predictable usage.
+      # =====================================================
+      ShardCount: 1
+
+      # =====================================================
+      # OPTION B: ON-DEMAND MODE - COMMENTED
+      # Use later for production-like elastic traffic.
+      #
+      # To switch to On-Demand:
+      # 1. Comment this line above:
+      #      ShardCount: 1
+      # 2. Uncomment below:
+      #
+      # StreamModeDetails:
+      #   StreamMode: ON_DEMAND
+      # =====================================================
+
+      RetentionPeriodHours: 24
+
+      # =====================================================
+      # OPTIONAL: CUSTOM KMS ENCRYPTION FOR KINESIS - COMMENTED
+      # We removed this earlier because Kinesis creation was failing.
+      # Keep commented for now.
+      #
+      # To enable later, first update KMS key policy for Kinesis.
+      #
+      # StreamEncryption:
+      #   EncryptionType: KMS
+      #   KeyId:
+      #     Fn::ImportValue:
+      #       Fn::Sub: "${ResourcePrefix}-kms-key-arn"
+      # =====================================================
+
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-events-stream"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  FirehoseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ResourcePrefix}-firehose-events-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - firehose.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      Policies:
+        - PolicyName: !Sub "${ResourcePrefix}-firehose-events-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadFromKinesis
+                Effect: Allow
+                Action:
+                  - kinesis:DescribeStream
+                  - kinesis:DescribeStreamSummary
+                  - kinesis:GetShardIterator
+                  - kinesis:GetRecords
+                  - kinesis:ListShards
+                Resource: !GetAtt EventDataStream.Arn
+
+              - Sid: WriteToRawS3Bucket
+                Effect: Allow
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:PutObject
+                Resource:
+                  - Fn::Sub:
+                      - "arn:aws:s3:::${RawBucketName}"
+                      - RawBucketName:
+                          Fn::ImportValue:
+                            Fn::Sub: "${ResourcePrefix}-raw-bucket"
+                  - Fn::Sub:
+                      - "arn:aws:s3:::${RawBucketName}/*"
+                      - RawBucketName:
+                          Fn::ImportValue:
+                            Fn::Sub: "${ResourcePrefix}-raw-bucket"
+
+              - Sid: UseKmsForS3Delivery
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:Encrypt
+                  - kms:GenerateDataKey
+                  - kms:GenerateDataKeyWithoutPlaintext
+                  - kms:DescribeKey
+                Resource:
+                  Fn::ImportValue:
+                    Fn::Sub: "${ResourcePrefix}-kms-key-arn"
+
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-firehose-events-role"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  EventsFirehoseDeliveryStream:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    DependsOn:
+      - EventDataStream
+      - FirehoseRole
+    Properties:
+      DeliveryStreamName: !Sub "${ResourcePrefix}-events-firehose"
+      DeliveryStreamType: KinesisStreamAsSource
+
+      KinesisStreamSourceConfiguration:
+        KinesisStreamARN: !GetAtt EventDataStream.Arn
+        RoleARN: !GetAtt FirehoseRole.Arn
+
+      ExtendedS3DestinationConfiguration:
+        BucketARN:
+          Fn::Sub:
+            - "arn:aws:s3:::${RawBucketName}"
+            - RawBucketName:
+                Fn::ImportValue:
+                  Fn::Sub: "${ResourcePrefix}-raw-bucket"
+
+        RoleARN: !GetAtt FirehoseRole.Arn
+
+        Prefix: "events/kinesis/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/hour=!{timestamp:HH}/"
+
+        ErrorOutputPrefix: "events/kinesis-errors/!{firehose:error-output-type}/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/hour=!{timestamp:HH}/"
+
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 1
+
+        CompressionFormat: GZIP
+
+        EncryptionConfiguration:
+          KMSEncryptionConfig:
+            AWSKMSKeyARN:
+              Fn::ImportValue:
+                Fn::Sub: "${ResourcePrefix}-kms-key-arn"
+
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-events-firehose"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  EventDataStreamName:
+    Description: Kinesis event stream name
+    Value: !Ref EventDataStream
+    Export:
+      Name: !Sub "${ResourcePrefix}-events-stream-name"
+
+  EventDataStreamArn:
+    Description: Kinesis event stream ARN
+    Value: !GetAtt EventDataStream.Arn
+    Export:
+      Name: !Sub "${ResourcePrefix}-events-stream-arn"
+
+  EventsFirehoseName:
+    Description: Firehose delivery stream name
+    Value: !Ref EventsFirehoseDeliveryStream
+    Export:
+      Name: !Sub "${ResourcePrefix}-events-firehose-name"

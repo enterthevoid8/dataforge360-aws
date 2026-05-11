@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: DataForge360 - Glue Data Catalog and Raw Events Crawler
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: DataForge360
+
+  Environment:
+    Type: String
+    Default: Dev
+
+  ResourcePrefix:
+    Type: String
+    Default: dataforge360-dev
+
+  Owner:
+    Type: String
+    Default: Lalit
+
+  CostCenter:
+    Type: String
+    Default: Learning
+
+Resources:
+  DataForgeGlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Sub "${ResourcePrefix}_raw_db"
+        Description: !Sub "${ProjectName} ${Environment} raw data catalog database"
+
+  GlueCrawlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ResourcePrefix}-glue-crawler-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - glue.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: !Sub "${ResourcePrefix}-glue-crawler-s3-kms-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadRawBucket
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - Fn::Sub:
+                      - "arn:aws:s3:::${RawBucketName}"
+                      - RawBucketName:
+                          Fn::ImportValue:
+                            Fn::Sub: "${ResourcePrefix}-raw-bucket"
+                  - Fn::Sub:
+                      - "arn:aws:s3:::${RawBucketName}/*"
+                      - RawBucketName:
+                          Fn::ImportValue:
+                            Fn::Sub: "${ResourcePrefix}-raw-bucket"
+
+              - Sid: UseKmsForRawBucket
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                Resource:
+                  Fn::ImportValue:
+                    Fn::Sub: "${ResourcePrefix}-kms-key-arn"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-glue-crawler-role"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  RawEventsCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Sub "${ResourcePrefix}-raw-events-crawler"
+      Role: !GetAtt GlueCrawlerRole.Arn
+      DatabaseName: !Ref DataForgeGlueDatabase
+      Description: Crawler for raw Kinesis/Firehose event files in S3
+      Targets:
+        S3Targets:
+          - Path:
+              Fn::Sub:
+                - "s3://${RawBucketName}/events/kinesis/"
+                - RawBucketName:
+                    Fn::ImportValue:
+                      Fn::Sub: "${ResourcePrefix}-raw-bucket"
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+      RecrawlPolicy:
+        RecrawlBehavior: CRAWL_EVERYTHING
+      Configuration: |
+        {
+          "Version": 1.0,
+          "CrawlerOutput": {
+            "Partitions": {
+              "AddOrUpdateBehavior": "InheritFromTable"
+            }
+          }
+        }
+      Tags:
+        Name: !Sub "${ResourcePrefix}-raw-events-crawler"
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        Owner: !Ref Owner
+        CostCenter: !Ref CostCenter
+        AutoDelete: "True"
+        ManagedBy: CloudFormation
+
+Outputs:
+  GlueDatabaseName:
+    Description: Glue raw database name
+    Value: !Ref DataForgeGlueDatabase
+    Export:
+      Name: !Sub "${ResourcePrefix}-raw-glue-database"
+
+  RawEventsCrawlerName:
+    Description: Glue crawler name for raw events
+    Value: !Ref RawEventsCrawler
+    Export:
+      Name: !Sub "${ResourcePrefix}-raw-events-crawler"

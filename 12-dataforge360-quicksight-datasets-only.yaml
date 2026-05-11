@@ -1,0 +1,321 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: DataForge360 - QuickSight Redshift Data Source and Datasets Only
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: DataForge360
+
+  Environment:
+    Type: String
+    Default: Dev
+
+  ResourcePrefix:
+    Type: String
+    Default: dataforge360-dev
+
+  Owner:
+    Type: String
+    Default: Lalit
+
+  CostCenter:
+    Type: String
+    Default: Learning
+
+  QuickSightUserArn:
+    Type: String
+    Description: ARN of QuickSight user who will own/use the datasets
+
+  QuickSightVpcConnectionArn:
+    Type: String
+    Description: Existing QuickSight VPC connection ARN
+
+  RedshiftEndpointAddress:
+    Type: String
+    Description: Redshift Serverless endpoint address
+
+  RedshiftDatabase:
+    Type: String
+    Default: dev
+
+  RedshiftAdminUsername:
+    Type: String
+    Default: dataforgeadmin
+
+  RedshiftAdminPassword:
+    Type: String
+    NoEcho: true
+    Default: DataForge360Redshift123!
+
+Resources:
+  QuickSightRedshiftDataSource:
+    Type: AWS::QuickSight::DataSource
+    Properties:
+      AwsAccountId: !Ref AWS::AccountId
+      DataSourceId: !Sub "${ResourcePrefix}-redshift-ds"
+      Name: !Sub "${ResourcePrefix}-redshift-ds"
+      Type: REDSHIFT
+      DataSourceParameters:
+        RedshiftParameters:
+          Host: !Ref RedshiftEndpointAddress
+          Port: 5439
+          Database: !Ref RedshiftDatabase
+      Credentials:
+        CredentialPair:
+          Username: !Ref RedshiftAdminUsername
+          Password: !Ref RedshiftAdminPassword
+      VpcConnectionProperties:
+        VpcConnectionArn: !Ref QuickSightVpcConnectionArn
+      SslProperties:
+        DisableSsl: false
+      Permissions:
+        - Principal: !Ref QuickSightUserArn
+          Actions:
+            - quicksight:DescribeDataSource
+            - quicksight:DescribeDataSourcePermissions
+            - quicksight:PassDataSource
+            - quicksight:UpdateDataSource
+            - quicksight:DeleteDataSource
+            - quicksight:UpdateDataSourcePermissions
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-redshift-ds"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  SalesSummaryDataSet:
+    Type: AWS::QuickSight::DataSet
+    DependsOn: QuickSightRedshiftDataSource
+    Properties:
+      AwsAccountId: !Ref AWS::AccountId
+      DataSetId: !Sub "${ResourcePrefix}-sales-summary-ds"
+      Name: !Sub "${ResourcePrefix}-sales-summary-ds"
+      ImportMode: DIRECT_QUERY
+      PhysicalTableMap:
+        SalesSummaryPhysicalTable:
+          CustomSql:
+            DataSourceArn: !GetAtt QuickSightRedshiftDataSource.Arn
+            Name: sales_summary
+            SqlQuery: "SELECT * FROM vw_sales_summary"
+            Columns:
+              - Name: source_channel
+                Type: STRING
+              - Name: total_orders
+                Type: INTEGER
+              - Name: total_revenue
+                Type: DECIMAL
+              - Name: avg_order_value
+                Type: DECIMAL
+      Permissions:
+        - Principal: !Ref QuickSightUserArn
+          Actions:
+            - quicksight:DescribeDataSet
+            - quicksight:DescribeDataSetPermissions
+            - quicksight:PassDataSet
+            - quicksight:DescribeIngestion
+            - quicksight:ListIngestions
+            - quicksight:UpdateDataSet
+            - quicksight:DeleteDataSet
+            - quicksight:CreateIngestion
+            - quicksight:CancelIngestion
+            - quicksight:UpdateDataSetPermissions
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-sales-summary-ds"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  StateRevenueDataSet:
+    Type: AWS::QuickSight::DataSet
+    DependsOn: QuickSightRedshiftDataSource
+    Properties:
+      AwsAccountId: !Ref AWS::AccountId
+      DataSetId: !Sub "${ResourcePrefix}-state-revenue-ds"
+      Name: !Sub "${ResourcePrefix}-state-revenue-ds"
+      ImportMode: DIRECT_QUERY
+      PhysicalTableMap:
+        StateRevenuePhysicalTable:
+          CustomSql:
+            DataSourceArn: !GetAtt QuickSightRedshiftDataSource.Arn
+            Name: state_revenue
+            SqlQuery: "SELECT * FROM vw_state_revenue"
+            Columns:
+              - Name: state
+                Type: STRING
+              - Name: total_orders
+                Type: INTEGER
+              - Name: total_revenue
+                Type: DECIMAL
+      Permissions:
+        - Principal: !Ref QuickSightUserArn
+          Actions:
+            - quicksight:DescribeDataSet
+            - quicksight:DescribeDataSetPermissions
+            - quicksight:PassDataSet
+            - quicksight:DescribeIngestion
+            - quicksight:ListIngestions
+            - quicksight:UpdateDataSet
+            - quicksight:DeleteDataSet
+            - quicksight:CreateIngestion
+            - quicksight:CancelIngestion
+            - quicksight:UpdateDataSetPermissions
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-state-revenue-ds"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  EventSummaryDataSet:
+    Type: AWS::QuickSight::DataSet
+    DependsOn: QuickSightRedshiftDataSource
+    Properties:
+      AwsAccountId: !Ref AWS::AccountId
+      DataSetId: !Sub "${ResourcePrefix}-event-summary-ds"
+      Name: !Sub "${ResourcePrefix}-event-summary-ds"
+      ImportMode: DIRECT_QUERY
+      PhysicalTableMap:
+        EventSummaryPhysicalTable:
+          CustomSql:
+            DataSourceArn: !GetAtt QuickSightRedshiftDataSource.Arn
+            Name: event_summary
+            SqlQuery: "SELECT * FROM vw_event_summary"
+            Columns:
+              - Name: event_type
+                Type: STRING
+              - Name: source
+                Type: STRING
+              - Name: total_events
+                Type: INTEGER
+              - Name: unique_users
+                Type: INTEGER
+      Permissions:
+        - Principal: !Ref QuickSightUserArn
+          Actions:
+            - quicksight:DescribeDataSet
+            - quicksight:DescribeDataSetPermissions
+            - quicksight:PassDataSet
+            - quicksight:DescribeIngestion
+            - quicksight:ListIngestions
+            - quicksight:UpdateDataSet
+            - quicksight:DeleteDataSet
+            - quicksight:CreateIngestion
+            - quicksight:CancelIngestion
+            - quicksight:UpdateDataSetPermissions
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-event-summary-ds"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  FunnelSummaryDataSet:
+    Type: AWS::QuickSight::DataSet
+    DependsOn: QuickSightRedshiftDataSource
+    Properties:
+      AwsAccountId: !Ref AWS::AccountId
+      DataSetId: !Sub "${ResourcePrefix}-funnel-summary-ds"
+      Name: !Sub "${ResourcePrefix}-funnel-summary-ds"
+      ImportMode: DIRECT_QUERY
+      PhysicalTableMap:
+        FunnelSummaryPhysicalTable:
+          CustomSql:
+            DataSourceArn: !GetAtt QuickSightRedshiftDataSource.Arn
+            Name: funnel_summary
+            SqlQuery: "SELECT * FROM vw_event_funnel"
+            Columns:
+              - Name: user_id
+                Type: STRING
+              - Name: viewed_product
+                Type: INTEGER
+              - Name: added_to_cart
+                Type: INTEGER
+              - Name: purchased
+                Type: INTEGER
+      Permissions:
+        - Principal: !Ref QuickSightUserArn
+          Actions:
+            - quicksight:DescribeDataSet
+            - quicksight:DescribeDataSetPermissions
+            - quicksight:PassDataSet
+            - quicksight:DescribeIngestion
+            - quicksight:ListIngestions
+            - quicksight:UpdateDataSet
+            - quicksight:DeleteDataSet
+            - quicksight:CreateIngestion
+            - quicksight:CancelIngestion
+            - quicksight:UpdateDataSetPermissions
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-funnel-summary-ds"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  QuickSightRedshiftDataSourceArn:
+    Description: QuickSight Redshift data source ARN
+    Value: !GetAtt QuickSightRedshiftDataSource.Arn
+
+  SalesSummaryDataSetArn:
+    Description: Sales summary dataset ARN
+    Value: !GetAtt SalesSummaryDataSet.Arn
+
+  StateRevenueDataSetArn:
+    Description: State revenue dataset ARN
+    Value: !GetAtt StateRevenueDataSet.Arn
+
+  EventSummaryDataSetArn:
+    Description: Event summary dataset ARN
+    Value: !GetAtt EventSummaryDataSet.Arn
+
+  FunnelSummaryDataSetArn:
+    Description: Funnel summary dataset ARN
+    Value: !GetAtt FunnelSummaryDataSet.Arn

@@ -1,0 +1,21 @@
+{
+  "name": "dataforge360-backend-api",
+  "version": "1.0.0",
+  "description": "Production-style Node.js backend API for DataForge360 AWS project",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-kinesis": "^3.1045.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "pg": "^8.13.1",
+    "pino": "^9.6.0",
+    "pino-http": "^10.4.0"
+  }
+}

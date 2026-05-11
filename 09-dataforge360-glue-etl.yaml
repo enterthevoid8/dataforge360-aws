@@ -1,0 +1,170 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: DataForge360 - Glue ETL Raw Events to Curated Parquet
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: DataForge360
+
+  Environment:
+    Type: String
+    Default: Dev
+
+  ResourcePrefix:
+    Type: String
+    Default: dataforge360-dev
+
+  Owner:
+    Type: String
+    Default: Lalit
+
+  CostCenter:
+    Type: String
+    Default: Learning
+
+Resources:
+  GlueETLRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ResourcePrefix}-glue-etl-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - glue.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: !Sub "${ResourcePrefix}-glue-etl-s3-kms-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadRawBucketAndArtifacts
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - Fn::Sub:
+                      - "arn:aws:s3:::${RawBucketName}"
+                      - RawBucketName:
+                          Fn::ImportValue:
+                            Fn::Sub: "${ResourcePrefix}-raw-bucket"
+                  - Fn::Sub:
+                      - "arn:aws:s3:::${RawBucketName}/*"
+                      - RawBucketName:
+                          Fn::ImportValue:
+                            Fn::Sub: "${ResourcePrefix}-raw-bucket"
+                  - Fn::Sub:
+                      - "arn:aws:s3:::${ArtifactsBucketName}"
+                      - ArtifactsBucketName:
+                          Fn::ImportValue:
+                            Fn::Sub: "${ResourcePrefix}-artifacts-bucket"
+                  - Fn::Sub:
+                      - "arn:aws:s3:::${ArtifactsBucketName}/*"
+                      - ArtifactsBucketName:
+                          Fn::ImportValue:
+                            Fn::Sub: "${ResourcePrefix}-artifacts-bucket"
+
+              - Sid: WriteCuratedBucket
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - Fn::Sub:
+                      - "arn:aws:s3:::${CuratedBucketName}"
+                      - CuratedBucketName:
+                          Fn::ImportValue:
+                            Fn::Sub: "${ResourcePrefix}-curated-bucket"
+                  - Fn::Sub:
+                      - "arn:aws:s3:::${CuratedBucketName}/*"
+                      - CuratedBucketName:
+                          Fn::ImportValue:
+                            Fn::Sub: "${ResourcePrefix}-curated-bucket"
+
+              - Sid: UseKms
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:Encrypt
+                  - kms:GenerateDataKey
+                  - kms:DescribeKey
+                Resource:
+                  Fn::ImportValue:
+                    Fn::Sub: "${ResourcePrefix}-kms-key-arn"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-glue-etl-role"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: AutoDelete
+          Value: "True"
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  RawEventsToParquetJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Sub "${ResourcePrefix}-raw-events-to-parquet"
+      Role: !GetAtt GlueETLRole.Arn
+      Description: Converts raw Kinesis Firehose JSON/GZIP events into curated partitioned Parquet
+      GlueVersion: "4.0"
+      WorkerType: G.1X
+      NumberOfWorkers: 2
+      Timeout: 15
+      MaxRetries: 0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      Command:
+        Name: glueetl
+        PythonVersion: "3"
+        ScriptLocation:
+          Fn::Sub:
+            - "s3://${ArtifactsBucketName}/glue-jobs/raw_events_to_parquet.py"
+            - ArtifactsBucketName:
+                Fn::ImportValue:
+                  Fn::Sub: "${ResourcePrefix}-artifacts-bucket"
+      DefaultArguments:
+        "--job-language": "python"
+        "--enable-metrics": "true"
+        "--enable-continuous-cloudwatch-log": "true"
+        "--RAW_EVENTS_PATH":
+          Fn::Sub:
+            - "s3://${RawBucketName}/events/kinesis/"
+            - RawBucketName:
+                Fn::ImportValue:
+                  Fn::Sub: "${ResourcePrefix}-raw-bucket"
+        "--CURATED_EVENTS_PATH":
+          Fn::Sub:
+            - "s3://${CuratedBucketName}/events_parquet/"
+            - CuratedBucketName:
+                Fn::ImportValue:
+                  Fn::Sub: "${ResourcePrefix}-curated-bucket"
+      Tags:
+        Name: !Sub "${ResourcePrefix}-raw-events-to-parquet"
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        Owner: !Ref Owner
+        CostCenter: !Ref CostCenter
+        AutoDelete: "True"
+        ManagedBy: CloudFormation
+
+Outputs:
+  RawEventsToParquetJobName:
+    Description: Glue ETL job name
+    Value: !Ref RawEventsToParquetJob
+    Export:
+      Name: !Sub "${ResourcePrefix}-raw-events-to-parquet-job"
